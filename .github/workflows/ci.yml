@@ -37,3 +37,59 @@ jobs:
 
       - name: Build client and server
         run: npx vite build && npm run build:server
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ADMIN_EMAIL: ci@example.test
+      ADMIN_PASSWORD: ci-only-password-1234
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t leadhub:ci .
+
+      - name: Start on an empty volume
+        run: |
+          docker volume create leadhub-data
+          docker run -d --name leadhub -p 4000:4000 -v leadhub-data:/data \
+            -e SEED_ADMIN_EMAIL="$ADMIN_EMAIL" -e SEED_ADMIN_PASSWORD="$ADMIN_PASSWORD" leadhub:ci
+          for i in $(seq 1 30); do curl -fs localhost:4000/api/health && break; sleep 1; done
+
+      - name: Smoke test
+        run: |
+          set -eu
+          curl -fs localhost:4000/api/health | grep -q '"ok":true'
+          curl -fsI localhost:4000/ | grep -qi '^content-security-policy:'
+          curl -fs localhost:4000/leads | grep -q 'id="root"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:4000/api/bootstrap)" = 401
+          login() { curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+            -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" localhost:4000/api/auth/login; }
+          test "$(login)" = 200
+          # The app runs as the unprivileged node user and owns its data
+          test "$(docker exec leadhub stat -c %U /proc/1)" = node
+          test "$(docker exec leadhub stat -c %U /data/crm.db)" = node
+          sleep 2
+          docker exec leadhub sh -c 'ls /data/backups/crm-*.db'
+
+      - name: Graceful shutdown on SIGTERM
+        run: |
+          docker stop -t 15 leadhub
+          docker logs leadhub > logs.txt 2>&1; cat logs.txt
+          grep -q '\[shutdown\] SIGTERM received' logs.txt
+          test "$(docker inspect -f '{{.State.ExitCode}}' leadhub)" = 0
+
+      - name: Data survives a new container
+        run: |
+          # No seed variables this time: the existing database must be reused
+          docker run -d --name leadhub-2 -p 4000:4000 -v leadhub-data:/data leadhub:ci
+          for i in $(seq 1 30); do curl -fs localhost:4000/api/health && break; sleep 1; done
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+            -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" localhost:4000/api/auth/login)
+          test "$code" = 200
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs leadhub 2>&1 || true; docker logs leadhub-2 2>&1 || true
