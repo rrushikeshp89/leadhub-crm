@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-server/
+*.tsbuildinfo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Database files (SQLite + WAL)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Logs and coverage
+*.log
+npm-debug.log*
+coverage/
+
+# Editor, OS and local tooling
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
