@@ -1,5 +1,7 @@
 # LeadHub
 
+[![CI](https://github.com/rrushikeshp89/leadhub-crm/actions/workflows/ci.yml/badge.svg)](https://github.com/rrushikeshp89/leadhub-crm/actions/workflows/ci.yml)
+
 A B2B sales CRM for a company that sells **custom software development, AI solutions and technology consulting**. It covers capturing leads, qualifying prospects, managing the opportunity pipeline, tracking proposals, closing deals and following up.
 
 ![LeadHub dashboard](docs/screenshot-dashboard.png)
