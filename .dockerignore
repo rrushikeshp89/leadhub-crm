@@ -1,0 +1,20 @@
+# Keep the build context small and free of local state or secrets
+node_modules
+dist
+dist-server
+data
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+.git
+.github
+.claude
+.vscode
+.idea
+docs
+coverage
+*.log
+*.tsbuildinfo
