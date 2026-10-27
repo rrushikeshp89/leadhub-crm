@@ -1,4 +1,4 @@
-import type { ZodTypeAny } from 'zod'
+import type { ZodType } from 'zod'
 import { ZodError } from 'zod'
 import {
   DEFAULT_SETTINGS, LEAD_STATUSES, STAGES,
@@ -30,7 +30,7 @@ type Hooks = {
   fkMessage?: string
 }
 
-interface EntityDef { table: TableKey; schema: ZodTypeAny; hooks?: Hooks }
+interface EntityDef { table: TableKey; schema: ZodType; hooks?: Hooks }
 
 const ENTITIES: Record<string, EntityDef> = {
   companies: { table: 'companies', schema: companySchema, hooks: { ownerField: 'ownerId', fkMessage: 'This company still has leads, opportunities or invoices. Move or delete them first.' } },
@@ -441,7 +441,7 @@ function entityDef(name: string) {
   return def
 }
 
-export function validate<T extends ZodTypeAny>(schema: T, input: unknown) {
+export function validate<T extends ZodType>(schema: T, input: unknown) {
   try {
     return schema.parse(input) as ReturnType<T['parse']>
   } catch (e) {
