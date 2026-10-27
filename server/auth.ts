@@ -33,19 +33,19 @@ export function publicUser(u: DbUser | undefined): User | undefined {
   return { ...rest, canLogin: !!passwordHash }
 }
 
-export function createSession(repo: Repo, res: Response, userId: string) {
+export async function createSession(repo: Repo, res: Response, userId: string) {
   const token = randomBytes(32).toString('base64url')
   const expires = new Date(Date.now() + SESSION_DAYS * 86400000)
-  repo.db.prepare('INSERT INTO sessions (tokenHash, userId, expiresAt, createdAt) VALUES (?, ?, ?, ?)')
-    .run(sha(token), userId, expires.toISOString(), new Date().toISOString())
+  await repo.db.run('INSERT INTO sessions (tokenHash, userId, expiresAt, createdAt) VALUES (?, ?, ?, ?)',
+    [sha(token), userId, expires.toISOString(), new Date().toISOString()])
   res.cookie(COOKIE, token, {
     httpOnly: true, sameSite: 'lax', secure: config.secure, expires, path: '/',
   })
 }
 
-export function destroySession(repo: Repo, req: Request, res: Response) {
+export async function destroySession(repo: Repo, req: Request, res: Response) {
   const token = readCookie(req)
-  if (token) repo.db.prepare('DELETE FROM sessions WHERE tokenHash = ?').run(sha(token))
+  if (token) await repo.db.run('DELETE FROM sessions WHERE tokenHash = ?', [sha(token)])
   res.clearCookie(COOKIE, { path: '/' })
 }
 
@@ -64,12 +64,13 @@ declare module 'express-serve-static-core' {
 }
 
 export function sessionMiddleware(repo: Repo) {
-  return (req: Request, _res: Response, next: NextFunction) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
     const token = readCookie(req)
     if (token) {
-      const row = repo.db.prepare(
+      const row = await repo.db.get<DbUser>(
         `SELECT u.* FROM sessions s JOIN users u ON u.id = s.userId WHERE s.tokenHash = ? AND s.expiresAt > ?`,
-      ).get(sha(token), new Date().toISOString()) as DbUser | undefined
+        [sha(token), new Date().toISOString()],
+      )
       if (row) req.user = publicUser(row)
     }
     next()

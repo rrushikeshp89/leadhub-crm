@@ -1,5 +1,7 @@
 # Deploying to Railway
 
+> Railway paused new sign-ups in October 2026 after a security incident. The free setup LeadHub uses is [Render + Turso](deploy-render.md); this guide stays for hosts that offer a persistent disk.
+
 LeadHub runs on Railway as **one service** built from the repository's `Dockerfile`, with a **volume** at `/data` for the SQLite database and its backups. Railway's edge terminates HTTPS, so the app gets secure cookies and HSTS automatically.
 
 | | |

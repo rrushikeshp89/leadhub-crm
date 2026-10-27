@@ -41,7 +41,7 @@ before(async () => {
   delete process.env.ANTHROPIC_API_KEY
   delete process.env.ANTHROPIC_AUTH_TOKEN
   delete process.env.AI_ENABLED
-  const { app } = createApp({ dbFile: ':memory:', admin: ADMIN, demo: false })
+  const { app } = await createApp({ dbUrl: ':memory:', admin: ADMIN, demo: false })
   server = app.listen(0)
   await new Promise((r) => server.once('listening', r))
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`
