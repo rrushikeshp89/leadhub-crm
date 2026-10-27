@@ -9,15 +9,19 @@ import {
   ROLES, SERVICE_CATEGORIES, SERVICE_GROUPS, STAGES, TASK_PRIORITIES, TASK_TYPES, TEMPERATURES,
 } from './model'
 
+/** Zod 4: custom message for a missing value only; other problems keep the default message */
+const missing = (msg: string) => ({ error: (iss: { input?: unknown }) => (iss.input === undefined ? msg : undefined) })
+/** Zod 4: custom message whenever the value is not a valid number */
+const notNumber = (msg: string) => ({ error: (iss: { code?: string }) => (iss.code === 'invalid_type' ? msg : undefined) })
 const blankToNull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : v)
 /** Optional, nullable text; empty strings become null (= unknown) */
 const text = (max = 2000) => z.preprocess(blankToNull, z.string().trim().max(max).nullable().optional())
-const req = (label: string, max = 200) => z.string({ required_error: `${label} is required` }).trim().min(1, `${label} is required`).max(max)
+const req = (label: string, max = 200) => z.string(missing(`${label} is required`)).trim().min(1, `${label} is required`).max(max)
 const date = z.preprocess(blankToNull, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a valid date').nullable().optional())
-const reqDate = (label: string) => z.string({ required_error: `${label} is required` }).regex(/^\d{4}-\d{2}-\d{2}$/, `${label} is required`)
+const reqDate = (label: string) => z.string(missing(`${label} is required`)).regex(/^\d{4}-\d{2}-\d{2}$/, `${label} is required`)
 const time = z.preprocess(blankToNull, z.string().regex(/^\d{2}:\d{2}$/, 'Use HH:MM').nullable().optional())
 const money = z.preprocess((v) => (v === '' || v === undefined ? null : typeof v === 'string' ? Number(v) : v),
-  z.number({ invalid_type_error: 'Enter a number' }).min(0, 'Cannot be negative').max(1e12).nullable().optional())
+  z.number(notNumber('Enter a number')).min(0, 'Cannot be negative').max(1e12).nullable().optional())
 const pct = z.preprocess((v) => (v === '' || v === undefined ? null : typeof v === 'string' ? Number(v) : v),
   z.number().min(0).max(100).nullable().optional())
 const oneOf = <T extends readonly [string, ...string[]]>(xs: T) => z.preprocess(blankToNull, z.enum(xs).nullable().optional())
@@ -102,7 +106,7 @@ export const opportunitySchema = z.object({
   services: services.refine((s) => s.length > 0, 'Pick at least one service'),
   problemStatement: text(),
   proposedSolution: text(),
-  value: z.preprocess((v) => (typeof v === 'string' ? Number(v) : v), z.number({ invalid_type_error: 'Enter the estimated deal value' }).min(0).max(1e12)),
+  value: z.preprocess((v) => (typeof v === 'string' ? Number(v) : v), z.number(notNumber('Enter the estimated deal value')).min(0).max(1e12)),
   probability: pct,
   deliveryTimeline: text(120),
   expectedCloseDate: date,
@@ -151,7 +155,7 @@ export const proposalSchema = z.object({
   services: services.refine((s) => s.length > 0, 'Pick at least one service'),
   problemStatement: text(),
   solutionSummary: text(),
-  price: z.preprocess((v) => (typeof v === 'string' ? Number(v) : v), z.number({ invalid_type_error: 'Enter the estimated price' }).min(0).max(1e12)),
+  price: z.preprocess((v) => (typeof v === 'string' ? Number(v) : v), z.number(notNumber('Enter the estimated price')).min(0).max(1e12)),
   deliveryTimeline: text(120),
   status: z.enum(PROPOSAL_STATUSES).default('Draft'),
   validUntil: date,
@@ -225,7 +229,7 @@ export const settingsSchema = z.object({
     weight: z.number().int().min(0).max(100),
     hint: z.string().max(200).default(''),
   })).min(1, 'Keep at least one criterion').max(10),
-  stageProbabilities: z.record(z.enum(STAGES), z.number().min(0).max(100)),
+  stageProbabilities: z.partialRecord(z.enum(STAGES), z.number().min(0).max(100)),
   staleDays: z.number().int().min(1).max(365),
   pageSize: z.number().int().min(5).max(100),
 }).partial()
@@ -272,7 +276,7 @@ export type InquiryInput = z.infer<typeof inquirySchema>
 export function fieldErrors(err: z.ZodError): Record<string, string> {
   const out: Record<string, string> = {}
   for (const i of err.issues) {
-    const k = i.path.join('.') || '_'
+    const k = i.path.map(String).join('.') || '_'
     if (!out[k]) out[k] = i.message
   }
   return out

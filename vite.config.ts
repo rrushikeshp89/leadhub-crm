@@ -8,14 +8,15 @@ export default defineConfig({
     proxy: { '/api': 'http://localhost:4000' },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // Long-lived vendor chunks: app releases do not invalidate the cached libraries
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-          if (/[\/]node_modules[\/](recharts|d3-|victory-vendor|decimal\.js-light|lodash)/.test(id)) return 'charts'
-          if (id.includes('iconsax-react')) return 'icons'
-          if (/[\/]node_modules[\/](react|react-dom|react-router|react-router-dom|@remix-run|scheduler)[\/]/.test(id)) return 'react'
+        codeSplitting: {
+          groups: [
+            { name: 'charts', test: /[\\/]node_modules[\\/](recharts|d3-|victory-vendor|decimal\.js-light|lodash)/ },
+            { name: 'icons', test: /[\\/]node_modules[\\/]iconsax-react[\\/]/ },
+            { name: 'react', test: /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler|cookie|set-cookie-parser)[\\/]/ },
+          ],
         },
       },
     },
