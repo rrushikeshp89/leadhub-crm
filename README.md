@@ -85,6 +85,8 @@ npm ci --omit=dev     # optional: drop build tools from the runtime
 NODE_ENV=production npm start
 ```
 
+**Deploying:** see [docs/deploy-railway.md](docs/deploy-railway.md) for the Railway setup (Dockerfile, volume, variables). The same `Dockerfile` runs on any host that can mount a persistent disk at `/data`.
+
 The server is a single Node process that serves both `/api` and the web app. SQLite keeps everything in one file, so the host needs a **persistent disk** mounted where `DB_PATH` points. Serverless platforms without a disk are not suitable.
 
 In production the server:
