@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react'
+import { Suspense, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Add, ArrowDown2, ArrowRight2, Box, Building, Calendar, Call, DollarSquare, HambergerMenu, Home2, Logout, Messages2, Note1,
@@ -6,7 +6,7 @@ import {
 } from 'iconsax-react'
 import { isDueToday, isOverdue } from '../../shared/calc'
 import { useLookups, useStore } from '../store/Store'
-import { Avatar, SearchInput, useClickAway } from './ui'
+import { Avatar, PageFallback, SearchInput, useClickAway } from './ui'
 import { EventForm, LeadIntakeForm, OpportunityForm, TaskForm } from './forms'
 import { cx, timeAgo } from '../lib/format'
 import { C } from '../lib/theme'
@@ -299,7 +299,8 @@ export default function Layout() {
       <Sidebar open={open} onClose={() => setOpen(false)} />
       <div className="min-w-0 flex-1 px-4 py-6 sm:px-6">
         <Header onMenu={() => setOpen(true)} />
-        <main><Outlet /></main>
+        {/* Pages load on demand; the sidebar and header stay put meanwhile */}
+        <main><Suspense fallback={<PageFallback />}><Outlet /></Suspense></main>
         <Footer />
       </div>
       <Toasts />

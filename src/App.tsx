@@ -1,26 +1,29 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth, useStore } from './store/Store'
 import Layout from './components/Layout'
-import { Spinner } from './components/ui'
-import Dashboard from './pages/Dashboard'
-import RepDashboard from './pages/RepDashboard'
-import Leads from './pages/Leads'
-import LeadDetail from './pages/LeadDetail'
-import Companies from './pages/Companies'
-import CompanyDetail from './pages/CompanyDetail'
-import Team from './pages/Team'
-import FollowUps from './pages/FollowUps'
-import Pipeline from './pages/Pipeline'
-import Opportunities from './pages/Opportunities'
-import OpportunityDetail from './pages/OpportunityDetail'
-import Proposals from './pages/Proposals'
-import Invoices from './pages/Invoices'
-import Campaigns from './pages/Campaigns'
-import CalendarPage from './pages/CalendarPage'
-import Services from './pages/Services'
-import Messages from './pages/Messages'
-import Inquiry from './pages/Inquiry'
+import { PageFallback, Spinner } from './components/ui'
 import { Login, Profile, Settings } from './pages/Account'
+
+// Each screen is its own chunk, loaded the first time it is opened
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const RepDashboard = lazy(() => import('./pages/RepDashboard'))
+const Leads = lazy(() => import('./pages/Leads'))
+const LeadDetail = lazy(() => import('./pages/LeadDetail'))
+const Companies = lazy(() => import('./pages/Companies'))
+const CompanyDetail = lazy(() => import('./pages/CompanyDetail'))
+const Team = lazy(() => import('./pages/Team'))
+const FollowUps = lazy(() => import('./pages/FollowUps'))
+const Pipeline = lazy(() => import('./pages/Pipeline'))
+const Opportunities = lazy(() => import('./pages/Opportunities'))
+const OpportunityDetail = lazy(() => import('./pages/OpportunityDetail'))
+const Proposals = lazy(() => import('./pages/Proposals'))
+const Invoices = lazy(() => import('./pages/Invoices'))
+const Campaigns = lazy(() => import('./pages/Campaigns'))
+const CalendarPage = lazy(() => import('./pages/CalendarPage'))
+const Services = lazy(() => import('./pages/Services'))
+const Messages = lazy(() => import('./pages/Messages'))
+const Inquiry = lazy(() => import('./pages/Inquiry'))
 
 function Home() {
   const { me } = useStore()
@@ -78,9 +81,11 @@ function Gate() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/inquiry" element={<Inquiry />} />
-      <Route path="*" element={<Gate />} />
-    </Routes>
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/inquiry" element={<Inquiry />} />
+        <Route path="*" element={<Gate />} />
+      </Routes>
+    </Suspense>
   )
 }
