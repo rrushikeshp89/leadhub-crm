@@ -1,0 +1,28 @@
+# Render Blueprint: one free Docker web service; the data lives in a Turso database.
+# Create it in the Render dashboard with New → Blueprint → this repository.
+# Setup guide: docs/deploy-render.md
+services:
+  - type: web
+    name: leadhub
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    # Deploy a commit only after its GitHub CI checks pass
+    autoDeployTrigger: checksPass
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render puts the real visitor address first in X-Forwarded-For
+      - key: TRUST_PROXY
+        value: "true"
+      # Secrets: Render asks for these when the Blueprint is created; they never live in the repo
+      - key: DATABASE_URL # libsql://<database>-<organization>.turso.io
+        sync: false
+      - key: DATABASE_AUTH_TOKEN
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD # 12+ characters; only used while the database has no users
+        sync: false

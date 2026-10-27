@@ -25,7 +25,7 @@ A B2B sales CRM for a company that sells **custom software development, AI solut
 | Layer | Choice |
 | --- | --- |
 | Frontend | React 18, Vite 5, TypeScript, Tailwind CSS 3, Recharts |
-| Backend | Express 5 on Node.js, built-in `node:sqlite` (no native build step) |
+| Backend | Express 5 on Node.js, libSQL (SQLite-compatible): a local file in development, Turso in production |
 | Shared | Domain model, business calculations and zod validation used by both client and server |
 | Tests | `node:test` end-to-end API tests on an in-memory database |
 
@@ -53,11 +53,12 @@ All settings are environment variables; `.env.example` documents each one. Setti
 | Variable | Default | Production default | Purpose |
 | --- | --- | --- | --- |
 | `API_PORT` / `PORT` | `4000` | | Port to listen on (`API_PORT` wins when both are set) |
-| `DB_PATH` | `data/crm.db` | | SQLite database file (must live on a persistent disk) |
+| `DATABASE_URL` | `data/crm.db` | | A local SQLite file path, or a Turso URL (`libsql://…`). `DB_PATH` is the older name |
+| `DATABASE_AUTH_TOKEN` | none | | Turso access token |
 | `COOKIE_SECURE` | `false` | `true` | HTTPS-only session cookies and HSTS |
 | `TRUST_PROXY` | `loopback` | | Proxies whose `X-Forwarded-For` is trusted: a hop count (`1` for most hosts), `true`/`false` or addresses |
 | `LOG_REQUESTS` | `false` | `true` | One JSON log line per request (no query strings, bodies or cookies) |
-| `BACKUP_INTERVAL_HOURS` | `0` (off) | `24` | Database snapshot interval |
+| `BACKUP_INTERVAL_HOURS` | `0` (off) | `24` | Snapshot interval for a local database file (Turso has its own restore) |
 | `BACKUP_DIR` / `BACKUP_KEEP` | `backups` next to the database / `7` | | Where snapshots go and how many are kept |
 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | `admin@leadhub.local` / random | password **required** | First admin account (password at least 12 characters) |
 | `SEED_DEMO` | `true` | `false` | Load fictional demo data on first run |
@@ -85,15 +86,15 @@ npm ci --omit=dev     # optional: drop build tools from the runtime
 NODE_ENV=production npm start
 ```
 
-**Deploying:** see [docs/deploy-railway.md](docs/deploy-railway.md) for the Railway setup (Dockerfile, volume, variables). The same `Dockerfile` runs on any host that can mount a persistent disk at `/data`.
+**Deploying:** [docs/deploy-render.md](docs/deploy-render.md) sets up the free hosting: a Render web service from [`render.yaml`](render.yaml) with a Turso database. On a host with a persistent disk, the same `Dockerfile` can keep a local database file at `/data` instead (see [docs/deploy-railway.md](docs/deploy-railway.md)).
 
-The server is a single Node process that serves both `/api` and the web app. SQLite keeps everything in one file, so the host needs a **persistent disk** mounted where `DB_PATH` points. Serverless platforms without a disk are not suitable.
+The server is a single Node process that serves both `/api` and the web app. Data lives either in a hosted Turso database (`DATABASE_URL=libsql://…`), which suits hosts without a persistent disk, or in a local SQLite file on a persistent disk.
 
 In production the server:
 - refuses to start on an empty database unless `SEED_ADMIN_PASSWORD` (12+ characters) is set, and loads no demo data unless asked;
 - sends a Content Security Policy, HSTS (over HTTPS) and anti-framing headers, and caches fingerprinted assets for a year;
 - answers `GET /api/health` (checks the database) for the host's health probe;
-- writes a database snapshot every 24 hours with `VACUUM INTO` and keeps the newest 7;
+- for a local database file, writes a snapshot every 24 hours with `VACUUM INTO` and keeps the newest 7;
 - on `SIGTERM`, finishes open requests, checkpoints the WAL and closes the database before exiting.
 
 ## Architecture
@@ -103,8 +104,8 @@ shared/        Domain model, business calculations, validation (used by client A
   model.ts       stages, lead statuses, service categories, lost reasons, entity types, settings
   calc.ts        weighted pipeline, win rate, stage conversion, qualification score, overdue rules, money format
   schemas.ts     zod schemas for every write (server enforces; client shows field errors)
-server/        Express 5 + SQLite
-  db.ts          versioned migrations, foreign keys, re-entrant transactions
+server/        Express 5 + libSQL
+  db.ts          libSQL client, versioned migrations, queued re-entrant transactions
   repo.ts        row ↔ model mapping, readable codes (LD-0001, OP-0001, PR-0001…)
   service.ts     business rules, activity logging, stage history, duplicate detection, intake, inquiry
   auth.ts        scrypt password hashing, httpOnly session cookies, role checks
@@ -171,10 +172,10 @@ Verified: end-to-end API and hardening tests, type checks, the production build,
 1. **HTTPS** behind the host's proxy, with `TRUST_PROXY` set to its hop count so rate limits see real client addresses.
 2. **Secrets:** a strong `SEED_ADMIN_PASSWORD` (then change it in Profile), set in the host’s environment, never in the repository.
 3. **Backups:** snapshots are written next to the database, which protects against mistakes and corruption but not against losing the disk. Copy them off the host regularly.
-4. **Database:** SQLite (WAL) suits a single instance and a small team. For multiple instances or heavy load move to Postgres (the repository layer is the only place that touches SQL).
+4. **Database:** one app instance with a local SQLite file or Turso suits a small team. Write transactions are queued inside the app, so run a single instance; for many instances or heavy load move to Postgres (the repository layer is the only place that touches SQL).
 5. **Scale:** the client loads all records at sign-in (`/api/bootstrap`), fine for thousands of records; add server-side pagination/search beyond that.
 6. **Rate limiting** is in-memory per process; use a shared store (or the proxy) if you run more than one instance.
-7. `node:sqlite` prints an experimental warning on startup; it is stable in practice. Keep Node pinned (`.nvmrc`).
+7. Keep Node pinned (`.nvmrc`); the libSQL client ships native builds for each platform.
 8. Add monitoring, log shipping and an audit trail export if your compliance needs require them.
 
 ## Credits
