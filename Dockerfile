@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build: install everything, then compile the client and bundle the server ----
-FROM node:24-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ COPY . .
 RUN npm run build && npm prune --omit=dev
 
 # ---- runtime: production dependencies and build output only ----
-FROM node:24-bookworm-slim
+FROM node:26-bookworm-slim
 ENV NODE_ENV=production \
     DB_PATH=/data/crm.db \
     PORT=4000
