@@ -2,6 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import type { NextFunction, Request, Response } from 'express'
 import type { User } from '../shared/model'
 import type { Repo } from './repo'
+import { config } from './config'
 
 const COOKIE = 'lh_sid'
 const SESSION_DAYS = 7
@@ -38,7 +39,7 @@ export function createSession(repo: Repo, res: Response, userId: string) {
   repo.db.prepare('INSERT INTO sessions (tokenHash, userId, expiresAt, createdAt) VALUES (?, ?, ?, ?)')
     .run(sha(token), userId, expires.toISOString(), new Date().toISOString())
   res.cookie(COOKIE, token, {
-    httpOnly: true, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true', expires, path: '/',
+    httpOnly: true, sameSite: 'lax', secure: config.secure, expires, path: '/',
   })
 }
 

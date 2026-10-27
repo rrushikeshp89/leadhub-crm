@@ -48,18 +48,22 @@ On first start the server creates the database (`data/crm.db`), an admin account
 
 ## Configuration
 
-All settings are environment variables; `.env.example` documents each one.
+All settings are environment variables; `.env.example` documents each one. Setting `NODE_ENV=production` switches on the safe defaults in the third column.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `API_PORT` | `4000` | Port the server listens on |
-| `DB_PATH` | `data/crm.db` | SQLite database file (must live on a persistent disk) |
-| `COOKIE_SECURE` | `false` | Set to `true` when served over HTTPS |
-| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | `admin@leadhub.local` / random | First admin account |
-| `SEED_DEMO` | `true` | Load fictional demo data on first run |
-| `SEED_REP_PASSWORD` | random | Password for the demo sales reps |
-| `ANTHROPIC_API_KEY` | none | Turns on the AI features |
-| `ANTHROPIC_MODEL` | `claude-opus-5-5` | Claude model used by the AI features |
+| Variable | Default | Production default | Purpose |
+| --- | --- | --- | --- |
+| `API_PORT` / `PORT` | `4000` | | Port to listen on (`API_PORT` wins when both are set) |
+| `DB_PATH` | `data/crm.db` | | SQLite database file (must live on a persistent disk) |
+| `COOKIE_SECURE` | `false` | `true` | HTTPS-only session cookies and HSTS |
+| `TRUST_PROXY` | `loopback` | | Proxies whose `X-Forwarded-For` is trusted: a hop count (`1` for most hosts), `true`/`false` or addresses |
+| `LOG_REQUESTS` | `false` | `true` | One JSON log line per request (no query strings, bodies or cookies) |
+| `BACKUP_INTERVAL_HOURS` | `0` (off) | `24` | Database snapshot interval |
+| `BACKUP_DIR` / `BACKUP_KEEP` | `backups` next to the database / `7` | | Where snapshots go and how many are kept |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | `admin@leadhub.local` / random | password **required** | First admin account (password at least 12 characters) |
+| `SEED_DEMO` | `true` | `false` | Load fictional demo data on first run |
+| `SEED_REP_PASSWORD` | random | | Password for the demo sales reps |
+| `ANTHROPIC_API_KEY` | none | | Turns on the AI features |
+| `ANTHROPIC_MODEL` | `claude-opus-5-5` | | Claude model used by the AI features |
 
 ## Scripts
 
@@ -69,7 +73,7 @@ All settings are environment variables; `.env.example` documents each one.
 | `npm test` | End-to-end API tests: Acme Technologies scenario, data integrity, permissions, inquiry dedupe, AI fallback, demo seed |
 | `npm run typecheck` | Type-checks client, server and shared code |
 | `npm run build` | Type-check, then build the client (`dist/`) and bundle the server (`dist-server/`) |
-| `npm start` | Runs the production server, which serves the API and the built client from one process |
+| `npm start` | Runs the built server, which serves the API and the client from one process (set `NODE_ENV=production` in production) |
 | `npm run verify` | Build + tests, as run before every release |
 
 ## Running in production
@@ -78,10 +82,17 @@ All settings are environment variables; `.env.example` documents each one.
 npm ci
 npm run build
 npm ci --omit=dev     # optional: drop build tools from the runtime
-npm start
+NODE_ENV=production npm start
 ```
 
 The server is a single Node process that serves both `/api` and the web app. SQLite keeps everything in one file, so the host needs a **persistent disk** mounted where `DB_PATH` points. Serverless platforms without a disk are not suitable.
+
+In production the server:
+- refuses to start on an empty database unless `SEED_ADMIN_PASSWORD` (12+ characters) is set, and loads no demo data unless asked;
+- sends a Content Security Policy, HSTS (over HTTPS) and anti-framing headers, and caches fingerprinted assets for a year;
+- answers `GET /api/health` (checks the database) for the host's health probe;
+- writes a database snapshot every 24 hours with `VACUUM INTO` and keeps the newest 7;
+- on `SIGTERM`, finishes open requests, checkpoints the WAL and closes the database before exiting.
 
 ## Architecture
 
@@ -153,15 +164,16 @@ Lead summary, qualification suggestion, next best action, meeting brief and emai
 
 ## Production readiness
 
-Verified: end-to-end API tests, type checks, production build, a manual UI walkthrough of the Acme scenario. Before production use:
+Verified: end-to-end API and hardening tests, type checks, the production build, every screen loading under the Content Security Policy, and a manual UI walkthrough of the Acme scenario. Before production use:
 
-1. **HTTPS + `COOKIE_SECURE=true`**, behind a reverse proxy (sessions use `SameSite=Lax` httpOnly cookies; writes must be JSON).
-2. **Secrets:** a strong `SEED_ADMIN_PASSWORD` (then change it in Profile) and `SEED_DEMO=false`, set in the host’s environment, never in the repository.
-3. **Database:** SQLite (WAL) suits a single instance and a small team; schedule backups of the database file. For multiple instances or heavy load move to Postgres (the repository layer is the only place that touches SQL).
-4. **Scale:** the client loads all records at sign-in (`/api/bootstrap`), fine for thousands of records; add server-side pagination/search beyond that.
-5. **Rate limiting** is in-memory per process; use a shared store (or the proxy) if you run more than one instance.
-6. `node:sqlite` prints an experimental warning on startup; it is stable in practice. Keep Node pinned (`.nvmrc`).
-7. Add monitoring/log shipping and an audit trail export if your compliance needs require them.
+1. **HTTPS** behind the host's proxy, with `TRUST_PROXY` set to its hop count so rate limits see real client addresses.
+2. **Secrets:** a strong `SEED_ADMIN_PASSWORD` (then change it in Profile), set in the host’s environment, never in the repository.
+3. **Backups:** snapshots are written next to the database, which protects against mistakes and corruption but not against losing the disk. Copy them off the host regularly.
+4. **Database:** SQLite (WAL) suits a single instance and a small team. For multiple instances or heavy load move to Postgres (the repository layer is the only place that touches SQL).
+5. **Scale:** the client loads all records at sign-in (`/api/bootstrap`), fine for thousands of records; add server-side pagination/search beyond that.
+6. **Rate limiting** is in-memory per process; use a shared store (or the proxy) if you run more than one instance.
+7. `node:sqlite` prints an experimental warning on startup; it is stable in practice. Keep Node pinned (`.nvmrc`).
+8. Add monitoring, log shipping and an audit trail export if your compliance needs require them.
 
 ## Credits
 

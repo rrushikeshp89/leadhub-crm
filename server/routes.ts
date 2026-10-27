@@ -5,6 +5,7 @@ import { createSession, destroySession, hashPassword, publicUser, requireAdmin, 
 import { AI_KINDS, AiError, runAi, type AiKind } from './ai'
 import { CrmService, ENTITY_NAMES, HttpError, validate } from './service'
 import { seedDemo } from './seed'
+import { config } from './config'
 
 type Handler = (req: Request, res: Response) => unknown
 const h = (fn: Handler) => (req: Request, res: Response, next: NextFunction) => {
@@ -18,6 +19,11 @@ const h = (fn: Handler) => (req: Request, res: Response, next: NextFunction) => 
 /** Tiny in-memory limiter (per IP + bucket). Fine for a single-process deployment. */
 function rateLimit(bucket: string, max: number, windowMs: number) {
   const hits = new Map<string, number[]>()
+  // Forget addresses whose window has passed so the map cannot grow without bound
+  setInterval(() => {
+    const cutoff = Date.now() - windowMs
+    for (const [key, times] of hits) if (times[times.length - 1] < cutoff) hits.delete(key)
+  }, windowMs).unref()
   return (req: Request, res: Response, next: NextFunction) => {
     const key = `${bucket}:${req.ip}`
     const nowMs = Date.now()
@@ -33,7 +39,16 @@ export function buildRouter(svc: CrmService) {
   const r = Router()
   const user = (req: Request) => req.user as User
 
-  r.get('/health', h(() => ({ ok: true })))
+  // Liveness + database check for the host's health probe (no sign-in, no data)
+  r.get('/health', (_req, res) => {
+    try {
+      svc.repo.db.prepare('SELECT 1').get()
+      res.setHeader('Cache-Control', 'no-store')
+      res.json({ ok: true })
+    } catch {
+      res.status(503).json({ ok: false })
+    }
+  })
 
   /* ---------- auth ---------- */
   r.post('/auth/login', rateLimit('login', 10, 10 * 60_000), h((req, res) => {
@@ -76,7 +91,7 @@ export function buildRouter(svc: CrmService) {
     if (action === 'load') {
       const count = (svc.db.prepare('SELECT COUNT(*) AS n FROM companies').get() as { n: number }).n
       if (count) throw new HttpError(409, 'Clear the current data before loading demo data')
-      seedDemo(svc, process.env.SEED_REP_PASSWORD || null)
+      seedDemo(svc, config.seed.repPassword)
       return { ok: true }
     }
     throw new HttpError(400, 'Unknown action')

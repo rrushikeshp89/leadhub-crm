@@ -352,6 +352,11 @@ export function Spinner({ className }: { className?: string }) {
   return <span aria-label="Loading" className={cx('inline-block h-4 w-4 animate-spin rounded-full border-2 border-sky border-t-sky-accent', className)} />
 }
 
+/** Placeholder while a lazily loaded screen downloads */
+export function PageFallback() {
+  return <div className="flex min-h-[50vh] items-center justify-center gap-3 text-[13px] text-muted"><Spinner /> Loading…</div>
+}
+
 export function Chips<T extends string>({ options, value, onChange, label }: { options: readonly T[]; value: T[]; onChange: (v: T[]) => void; label: string }) {
   return (
     <div role="group" aria-label={label} className="flex flex-wrap gap-2">
