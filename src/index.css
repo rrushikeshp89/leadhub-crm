@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; }
+  body { @apply bg-canvas font-sans text-[13px] text-ink; }
+  button, a, [role='button'], label[for], select { cursor: pointer; }
+  :focus-visible { outline: 2px solid #4abde8; outline-offset: 2px; border-radius: 6px; }
+  /* Native checkboxes/radios (forms) use the template accent */
+  input[type='checkbox'], input[type='radio'] { accent-color: #4abde8; width: 16px; height: 16px; }
+}
+
+/*
+ * Design system — follows the SchoolHub template.
+ * Type scale: 11 meta · 12 label · 13 body · 14 sub-heading · 15 nav · 18 card title · 20 calendar title / small KPI · 22 KPI / hero title · 28 big KPI
+ * Buttons: pills for calls to action (template "Download the App", "Read Full Page"),
+ *          rounded rectangles for utility actions (template "Add Task", Previous/Next, dropdown chips).
+ * Selection: lavender (template Month/Week/Day toggle). Navigation: sky (template sidebar).
+ */
+@layer components {
+  .card { @apply rounded-card bg-white; }
+  .card-title { @apply text-[18px] font-medium leading-tight text-ink; }
+  .section-title { @apply text-[14px] font-medium text-ink; }
+  .label { @apply text-[12px] text-muted; }
+  .meta { @apply text-[11px] text-faint; }
+  .link-muted { @apply text-[13px] text-muted transition-colors hover:text-ink; }
+  .link-accent { @apply text-[12px] font-medium text-sky-accent transition-colors hover:text-sky-ink; }
+
+  .th { @apply whitespace-nowrap px-3 py-4 text-left text-[13px] font-normal text-ink; }
+  /* Table cells are single-line like the template; long values truncate inside <Cell> */
+  .td { @apply whitespace-nowrap px-3 py-4 align-middle text-[13px] text-ink; }
+
+  .input {
+    @apply h-10 w-full rounded-lg border border-transparent bg-canvas px-3 text-[13px] text-ink outline-none transition-colors placeholder:text-faint focus:border-sky-accent focus:bg-white disabled:opacity-60;
+  }
+  textarea.input { @apply h-auto py-2 leading-relaxed; }
+  /* Selects use the template chevron instead of the browser arrow */
+  select.input {
+    @apply appearance-none pr-9;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238A8D8E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19.92 8.95l-6.52 6.52c-.77.77-2.03.77-2.8 0L4.08 8.95'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+
+  /* Buttons */
+  .btn { @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-full px-5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply btn bg-sky text-ink hover:bg-sky-hover; }
+  .btn-ghost { @apply btn border border-line bg-white text-ink hover:bg-canvas; }
+  .btn-white { @apply btn bg-white text-ink hover:bg-sky-light; }
+  .btn-danger { @apply btn bg-danger-light text-danger hover:bg-danger-hover; }
+  .btn-quiet-danger { @apply btn text-danger hover:bg-danger-light; }
+  /* Utility action, e.g. template “+ Add Task” */
+  .btn-soft { @apply inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-sky-light px-3 text-[12px] font-medium text-sky-accent transition-colors hover:bg-sky hover:text-ink disabled:opacity-50; }
+  .btn-sm { @apply h-8 px-3.5 text-[12px]; }
+
+  .icon-btn { @apply inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-sky-light; }
+  .icon-btn-danger { @apply icon-btn hover:bg-danger-light; }
+
+  /* Selectable chips (saved views, filters) */
+  .chip { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] transition-colors; }
+  .chip-on { @apply chip bg-lavender text-ink; }
+  .chip-off { @apply chip bg-canvas text-muted hover:text-ink; }
+
+  /* Filter panel under a toolbar */
+  .panel { @apply rounded-lg bg-canvas p-3; }
+
+  .scroll-thin::-webkit-scrollbar { width: 5px; height: 5px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: #e3e4e6; border-radius: 99px; }
+  .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+.recharts-wrapper, .recharts-surface { outline: none; }
+.recharts-cartesian-axis-tick-value { font-family: 'Plus Jakarta Sans', sans-serif; }
+
+/* Illustrated banners from the template (sidebar "Download the App" card, teacher dashboard hero) */
+.banner-app { background: linear-gradient(160deg, #60dffa 0%, #22b5e0 35%, #0196c3 55%, #01446f 100%); }
+.banner-app-fold { background: linear-gradient(90deg, #013861, #0177a6); }
+.banner-hero { background: linear-gradient(100deg, #45bae5 0%, #5cc4ea 55%, #85cfdc 100%); }
