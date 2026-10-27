@@ -1,5 +1,3 @@
-import { dirname, join } from 'node:path'
-
 /**
  * Runtime settings from the environment, with safe production defaults.
  * Read once at startup, after server/index.ts has loaded .env.
@@ -17,12 +15,15 @@ function trustProxy(v: string | undefined): boolean | number | string {
   return /^\d+$/.test(v) ? Number(v) : v
 }
 
-const dbPath = env.DB_PATH || 'data/crm.db'
 
 export const config = {
   // API_PORT wins over PORT so a dev tool that sets PORT for the web server does not move the API
   port: num(env.API_PORT || env.PORT, 4000),
-  dbPath,
+  database: {
+    /** libsql://… (Turso), file:… or a plain file path; DB_PATH is the older name */
+    url: env.DATABASE_URL || env.DB_PATH || 'data/crm.db',
+    authToken: env.DATABASE_AUTH_TOKEN || undefined,
+  },
   trustProxy: trustProxy(env.TRUST_PROXY),
   /** HTTPS-only cookies and HSTS; on by default in production */
   secure: bool(env.COOKIE_SECURE, isProd),
@@ -34,7 +35,8 @@ export const config = {
     demo: bool(env.SEED_DEMO, !isProd),
   },
   backup: {
-    dir: env.BACKUP_DIR || join(dirname(dbPath), 'backups'),
+    /** Default: a backups folder next to a local database file (remote databases are backed up by their host) */
+    dir: env.BACKUP_DIR || null,
     /** 0 turns scheduled backups off */
     intervalHours: num(env.BACKUP_INTERVAL_HOURS, isProd ? 24 : 0),
     keep: Math.max(1, num(env.BACKUP_KEEP, 7)),

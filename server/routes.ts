@@ -40,9 +40,9 @@ export function buildRouter(svc: CrmService) {
   const user = (req: Request) => req.user as User
 
   // Liveness + database check for the host's health probe (no sign-in, no data)
-  r.get('/health', (_req, res) => {
+  r.get('/health', async (_req, res) => {
     try {
-      svc.repo.db.prepare('SELECT 1').get()
+      await svc.db.get('SELECT 1')
       res.setHeader('Cache-Control', 'no-store')
       res.json({ ok: true })
     } catch {
@@ -51,47 +51,47 @@ export function buildRouter(svc: CrmService) {
   })
 
   /* ---------- auth ---------- */
-  r.post('/auth/login', rateLimit('login', 10, 10 * 60_000), h((req, res) => {
+  r.post('/auth/login', rateLimit('login', 10, 10 * 60_000), h(async (req, res) => {
     const { email, password } = validate(loginSchema, req.body)
-    const row = svc.db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(email) as (User & { passwordHash: string | null }) | undefined
+    const row = await svc.db.get<User & { passwordHash: string | null }>('SELECT * FROM users WHERE email = ? COLLATE NOCASE', [email])
     if (!row || !verifyPassword(password, row.passwordHash)) throw new HttpError(401, 'Email or password is incorrect')
-    createSession(svc.repo, res, row.id)
+    await createSession(svc.repo, res, row.id)
     return { user: publicUser(row) }
   }))
-  r.post('/auth/logout', h((req, res) => { destroySession(svc.repo, req, res); return { ok: true } }))
+  r.post('/auth/logout', h(async (req, res) => { await destroySession(svc.repo, req, res); return { ok: true } }))
   r.get('/auth/me', h((req) => ({ user: req.user ?? null })))
 
   /* ---------- public lead capture ---------- */
   r.post('/public/inquiries', rateLimit('inquiry', 5, 10 * 60_000), h((req) => svc.inquiry(req.body)))
-  r.get('/public/options', h(() => ({ companyName: svc.settings().companyName })))
+  r.get('/public/options', h(async () => ({ companyName: (await svc.settings()).companyName })))
 
   r.use(requireAuth)
 
   r.get('/bootstrap', h((req) => svc.bootstrap(user(req))))
 
   /* ---------- profile & settings ---------- */
-  r.patch('/me', h((req) => {
+  r.patch('/me', h(async (req) => {
     const me = user(req)
     const body = validate(profileSchema, { ...me, ...req.body })
-    const row = svc.db.prepare('SELECT passwordHash FROM users WHERE id = ?').get(me.id) as { passwordHash: string | null }
+    const row = (await svc.db.get<{ passwordHash: string | null }>('SELECT passwordHash FROM users WHERE id = ?', [me.id]))!
     let passwordHash = row.passwordHash
     if (body.newPassword) {
       if (row.passwordHash && !verifyPassword(body.currentPassword ?? '', row.passwordHash)) throw new HttpError(400, 'Current password is incorrect', { currentPassword: 'Incorrect password' })
       passwordHash = hashPassword(body.newPassword)
     }
-    const dupe = svc.db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE AND id != ?').get(body.email, me.id)
+    const dupe = await svc.db.get('SELECT id FROM users WHERE email = ? COLLATE NOCASE AND id != ?', [body.email, me.id])
     if (dupe) throw new HttpError(409, 'That email is already used by another user', { email: 'Already in use' })
-    const updated = svc.repo.update('users', me.id, { name: body.name, email: body.email, title: body.title ?? null, phone: body.phone ?? null, territory: body.territory ?? null, avatar: body.avatar ?? null, passwordHash })
+    const updated = await svc.repo.update('users', me.id, { name: body.name, email: body.email, title: body.title ?? null, phone: body.phone ?? null, territory: body.territory ?? null, avatar: body.avatar ?? null, passwordHash })
     return publicUser(updated as never)
   }))
   r.patch('/settings', requireAdmin, h((req) => svc.updateSettings(req.body)))
-  r.post('/admin/demo', requireAdmin, h((req) => {
+  r.post('/admin/demo', requireAdmin, h(async (req) => {
     const action = req.body?.action
-    if (action === 'clear') { svc.clearBusinessData(); return { ok: true } }
+    if (action === 'clear') { await svc.clearBusinessData(); return { ok: true } }
     if (action === 'load') {
-      const count = (svc.db.prepare('SELECT COUNT(*) AS n FROM companies').get() as { n: number }).n
+      const count = (await svc.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM companies'))!.n
       if (count) throw new HttpError(409, 'Clear the current data before loading demo data')
-      seedDemo(svc, config.seed.repPassword)
+      await seedDemo(svc, config.seed.repPassword)
       return { ok: true }
     }
     throw new HttpError(400, 'Unknown action')
@@ -108,23 +108,28 @@ export function buildRouter(svc: CrmService) {
     const kind = String(req.params.kind) as AiKind
     if (!AI_KINDS.includes(kind)) throw new HttpError(404, 'Unknown AI action')
     const { leadId, opportunityId, purpose } = req.body ?? {}
-    const opportunity = opportunityId ? svc.repo.get<Opportunity>('opportunities', opportunityId) : undefined
-    const lead = leadId ? svc.repo.get<Lead>('leads', leadId) : opportunity?.leadId ? svc.repo.get<Lead>('leads', opportunity.leadId) : undefined
+    const opportunity = typeof opportunityId === 'string' ? await svc.repo.get<Opportunity>('opportunities', opportunityId) : undefined
+    const leadKey = typeof leadId === 'string' ? leadId : opportunity?.leadId
+    const lead = leadKey ? await svc.repo.get<Lead>('leads', leadKey) : undefined
     if (!lead && !opportunity) throw new HttpError(400, 'Pick a lead or an opportunity')
     const companyId = (opportunity ?? lead)!.companyId
     const contactId = opportunity?.contactId ?? lead?.contactId
+    const ownerId = opportunity?.ownerId ?? lead?.ownerId
     const scope = lead ? 'leadId = ? OR companyId = ?' : 'opportunityId = ? OR companyId = ?'
     const scopeArgs = [lead?.id ?? opportunity!.id, companyId]
+    const [settings, company, contact, owner, opportunities, tasks, activities, proposals] = await Promise.all([
+      svc.settings(),
+      svc.repo.get<Company>('companies', companyId),
+      contactId ? svc.repo.get<Contact>('contacts', contactId) : undefined,
+      ownerId ? svc.repo.get<User>('users', ownerId) : undefined,
+      opportunity ? [opportunity] : svc.repo.all<Opportunity>('opportunities', 'leadId = ?', [lead!.id]),
+      svc.repo.all<Task>('tasks', scope, scopeArgs),
+      svc.repo.all<Activity>('activities', scope, scopeArgs),
+      svc.repo.all<Proposal>('proposals', opportunity ? 'opportunityId = ?' : 'companyId = ?', [opportunity?.id ?? companyId]),
+    ])
     try {
       return await runAi(kind, {
-        settings: svc.settings(), lead, opportunity,
-        company: svc.repo.get<Company>('companies', companyId),
-        contact: contactId ? svc.repo.get<Contact>('contacts', contactId) : undefined,
-        owner: (opportunity?.ownerId ?? lead?.ownerId) ? svc.repo.get<User>('users', (opportunity?.ownerId ?? lead?.ownerId)!) : undefined,
-        opportunities: opportunity ? [opportunity] : svc.repo.all<Opportunity>('opportunities', 'leadId = ?', [lead!.id]),
-        tasks: svc.repo.all<Task>('tasks', scope, scopeArgs),
-        activities: svc.repo.all<Activity>('activities', scope, scopeArgs),
-        proposals: svc.repo.all<Proposal>('proposals', opportunity ? 'opportunityId = ?' : 'companyId = ?', [opportunity?.id ?? companyId]),
+        settings, lead, opportunity, company, contact, owner, opportunities, tasks, activities, proposals,
         emailPurpose: typeof purpose === 'string' ? purpose.slice(0, 500) : undefined,
       })
     } catch (e) {

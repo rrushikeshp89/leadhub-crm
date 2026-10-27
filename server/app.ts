@@ -11,7 +11,9 @@ import { requestLog, securityHeaders } from './security'
 import { seedAdmin, seedDemo, seedServices } from './seed'
 
 export interface AppOptions {
-  dbFile?: string
+  /** libSQL URL or file path; `:memory:` for tests */
+  dbUrl?: string
+  dbAuthToken?: string
   /** First-run seeding when the database has no users */
   admin?: { email: string; password: string }
   demo?: boolean
@@ -23,18 +25,21 @@ export interface AppOptions {
   logRequests?: boolean
 }
 
-export function createApp(opts: AppOptions = {}) {
-  const db = openDb(opts.dbFile)
+export async function createApp(opts: AppOptions = {}) {
+  const db = await openDb(opts.dbUrl ?? config.database.url, opts.dbAuthToken ?? config.database.authToken)
   const repo = new Repo(db)
   const svc = new CrmService(repo)
 
-  const userCount = (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n
+  const userCount = (await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users'))!.n
   if (!userCount) {
     // Without a first admin nobody could ever sign in
-    if (!opts.admin) throw new Error('The database has no users: set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD for the first run.')
-    seedAdmin(repo, opts.admin.email, opts.admin.password)
-    seedServices(repo)
-    if (opts.demo) seedDemo(svc, opts.repPassword ?? null)
+    if (!opts.admin) {
+      db.close()
+      throw new Error('The database has no users: set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD for the first run.')
+    }
+    await seedAdmin(repo, opts.admin.email, opts.admin.password)
+    await seedServices(repo)
+    if (opts.demo) await seedDemo(svc, opts.repPassword ?? null)
   }
 
   const app = express()

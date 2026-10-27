@@ -22,8 +22,7 @@ if (isProd && !config.secure) console.warn('[setup] COOKIE_SECURE=false in produ
 
 let started
 try {
-  started = createApp({
-    dbFile: config.dbPath,
+  started = await createApp({
     admin: password ? { email, password } : undefined,
     demo,
     repPassword,
@@ -36,7 +35,9 @@ try {
 const { app, db } = started
 
 const stopBackups = scheduleBackups(db, config.backup)
-const server = app.listen(config.port, () => console.log(`LeadHub listening on port ${config.port}${isProd ? ' (production)' : ''}`))
+// Where the data lives, without credentials: the local file, or just the remote host
+const where = db.localFile ?? (config.database.url.includes('://') ? new URL(config.database.url).host : config.database.url)
+const server = app.listen(config.port, () => console.log(`LeadHub listening on port ${config.port}${isProd ? ' (production)' : ''}; database: ${where}`))
 
 // Hosts send SIGTERM before replacing the container: finish open requests, then close the database cleanly
 let closing = false
@@ -48,12 +49,11 @@ function shutdown(signal: string) {
   const force = setTimeout(() => process.exit(1), 10_000)
   force.unref()
   server.close(() => {
-    try {
-      db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    const checkpoint = db.localFile ? db.script('PRAGMA wal_checkpoint(TRUNCATE);') : Promise.resolve()
+    checkpoint.catch(() => {}).finally(() => {
       db.close()
-    } finally {
       process.exit(0)
-    }
+    })
   })
   server.closeIdleConnections()
 }

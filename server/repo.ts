@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { DB } from './db'
+import type { Args, Db } from './db'
 
 /** Per-table column handling. Everything not listed is stored as-is. */
 export interface TableDef {
@@ -59,39 +59,41 @@ function encode(def: TableDef, data: Row): Row {
 }
 
 export class Repo {
-  constructor(readonly db: DB) {}
+  constructor(readonly db: Db) {}
 
-  all<T = Row>(key: TableKey, where = '', params: unknown[] = []): T[] {
+  async all<T = Row>(key: TableKey, where = '', params: Args = []): Promise<T[]> {
     const def: TableDef = TABLES[key]
-    const rows = this.db.prepare(`SELECT * FROM ${q(def.table)} ${where ? `WHERE ${where}` : ''} ORDER BY ${def.orderBy ?? 'rowid'}`).all(...(params as never[])) as Row[]
+    const rows = await this.db.all(`SELECT * FROM ${q(def.table)} ${where ? `WHERE ${where}` : ''} ORDER BY ${def.orderBy ?? 'rowid'}`, params)
     return rows.map((r) => decode<T>(def, r)!)
   }
 
-  get<T = Row>(key: TableKey, id: string): T | undefined {
+  async get<T = Row>(key: TableKey, id: string): Promise<T | undefined> {
     const def: TableDef = TABLES[key]
-    return decode<T>(def, this.db.prepare(`SELECT * FROM ${q(def.table)} WHERE id = ?`).get(id) as Row | undefined)
+    return decode<T>(def, await this.db.get(`SELECT * FROM ${q(def.table)} WHERE id = ?`, [id]))
   }
 
-  nextCode(def: TableDef): string {
-    const { prefix, pad } = def.code!
-    const r = this.db.prepare(`SELECT MAX(CAST(SUBSTR(code, ${prefix.length + 1}) AS INTEGER)) AS n FROM ${q(def.table)}`).get() as { n: number | null }
-    return prefix + String((r.n ?? 0) + 1).padStart(pad, '0')
-  }
-
-  insert<T = Row>(key: TableKey, data: Row): T {
+  async insert<T = Row>(key: TableKey, data: Row): Promise<T> {
     const def: TableDef = TABLES[key]
     const row: Row = { id: data.id ?? newId(def.idPrefix), ...data }
-    if (def.code && !row.code) row.code = this.nextCode(def)
     const ts = now()
     if (def.timestamps === 'both') { row.createdAt ??= ts; row.updatedAt = row.updatedAt ?? ts }
     if (def.timestamps === 'created') row.createdAt ??= ts
     const enc = encode(def, row)
     const cols = Object.keys(enc)
-    this.db.prepare(`INSERT INTO ${q(def.table)} (${cols.map(q).join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...(Object.values(enc) as never[]))
-    return this.get<T>(key, row.id as string)!
+    const values = cols.map(() => '?')
+    const args = Object.values(enc) as Args
+    if (def.code && !row.code) {
+      // Next code (LD-0008…) computed inside the INSERT, so concurrent writers can't pick the same one
+      const { prefix, pad } = def.code
+      cols.push('code')
+      values.push(`(SELECT ? || printf('%0${pad}d', COALESCE(MAX(CAST(SUBSTR(code, ${prefix.length + 1}) AS INTEGER)), 0) + 1) FROM ${q(def.table)})`)
+      args.push(prefix)
+    }
+    const saved = await this.db.get(`INSERT INTO ${q(def.table)} (${cols.map(q).join(',')}) VALUES (${values.join(',')}) RETURNING *`, args)
+    return decode<T>(def, saved)!
   }
 
-  update<T = Row>(key: TableKey, id: string, data: Row): T {
+  async update<T = Row>(key: TableKey, id: string, data: Row): Promise<T> {
     const def: TableDef = TABLES[key]
     const patch = { ...data }
     delete patch.id
@@ -100,14 +102,16 @@ export class Repo {
     if (def.timestamps === 'both') patch.updatedAt = now()
     const enc = encode(def, patch)
     const cols = Object.keys(enc)
-    if (cols.length) {
-      this.db.prepare(`UPDATE ${q(def.table)} SET ${cols.map((c) => `${q(c)} = ?`).join(', ')} WHERE id = ?`).run(...(Object.values(enc) as never[]), id)
-    }
-    return this.get<T>(key, id)!
+    if (!cols.length) return (await this.get<T>(key, id))!
+    const saved = await this.db.get(
+      `UPDATE ${q(def.table)} SET ${cols.map((c) => `${q(c)} = ?`).join(', ')} WHERE id = ? RETURNING *`,
+      [...(Object.values(enc) as Args), id],
+    )
+    return decode<T>(def, saved)!
   }
 
-  remove(key: TableKey, id: string) {
+  async remove(key: TableKey, id: string): Promise<number> {
     const def: TableDef = TABLES[key]
-    return this.db.prepare(`DELETE FROM ${q(def.table)} WHERE id = ?`).run(id).changes
+    return this.db.run(`DELETE FROM ${q(def.table)} WHERE id = ?`, [id])
   }
 }

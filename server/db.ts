@@ -1,9 +1,11 @@
-import { DatabaseSync } from 'node:sqlite'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { createClient, type Client, type InValue, type Transaction } from '@libsql/client'
 
 /**
- * SQLite via Node's built-in driver (no native build step).
+ * libSQL (SQLite-compatible) everywhere: `:memory:` in tests, a local file in development,
+ * a hosted Turso database in production. Same SQL, same schema.
  * Schema changes are versioned migrations; each runs once, in order, inside a transaction.
  * Column names are camelCase so rows map 1:1 to the shared TypeScript model.
  */
@@ -134,44 +136,110 @@ const MIGRATIONS: string[] = [
   `,
 ]
 
-export type DB = DatabaseSync
+export type Args = InValue[]
+type Row = Record<string, unknown>
 
-export function openDb(file = process.env.DB_PATH || 'data/crm.db'): DB {
-  if (file !== ':memory:') mkdirSync(dirname(resolve(file)), { recursive: true })
-  const db = new DatabaseSync(file)
-  db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;')
-  migrate(db)
-  return db
+/** Accept a libSQL URL (`libsql://…`, `file:…`, `:memory:`) or a plain file path */
+export function toDbUrl(input: string) {
+  return input === ':memory:' || /^(libsql|https?|wss?|file):/i.test(input) ? input : `file:${input}`
 }
 
-function migrate(db: DB) {
-  db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)')
-  const row = db.prepare('SELECT version FROM schema_version').get() as { version: number } | undefined
-  let version = row?.version ?? 0
-  if (!row) db.prepare('INSERT INTO schema_version (version) VALUES (0)').run()
-  for (; version < MIGRATIONS.length; version++) {
-    tx(db, () => {
-      db.exec(MIGRATIONS[version])
-      db.prepare('UPDATE schema_version SET version = ?').run(version + 1)
-    })
+export class Db {
+  /** The transaction the current async call chain is running in, if any */
+  private readonly scope = new AsyncLocalStorage<{ t: Transaction; depth: number }>()
+  /** Top-level write transactions run one at a time, so concurrent requests queue instead of hitting SQLITE_BUSY */
+  private writeQueue: Promise<unknown> = Promise.resolve()
+
+  /** `localFile` is the database path for file databases, null for `:memory:` and remote ones */
+  constructor(readonly client: Client, readonly localFile: string | null) {}
+
+  /** Inside tx() every query goes through the open transaction, so callers never pass it around */
+  private get conn(): Client | Transaction {
+    return this.scope.getStore()?.t ?? this.client
+  }
+
+  async all<T = Row>(sql: string, args: Args = []): Promise<T[]> {
+    const rs = await this.conn.execute({ sql, args })
+    // libSQL rows are array-like objects; spreading keeps just the named columns
+    return rs.rows.map((r) => ({ ...r }) as T)
+  }
+
+  async get<T = Row>(sql: string, args: Args = []): Promise<T | undefined> {
+    return (await this.all<T>(sql, args))[0]
+  }
+
+  /** Returns the number of rows changed */
+  async run(sql: string, args: Args = []): Promise<number> {
+    return (await this.conn.execute({ sql, args })).rowsAffected
+  }
+
+  /** Several statements separated by semicolons, without arguments */
+  async script(sql: string): Promise<void> {
+    await this.conn.executeMultiple(sql)
+  }
+
+  /** Re-entrant write transaction (nested calls become savepoints) */
+  async tx<T>(fn: () => Promise<T>): Promise<T> {
+    const cur = this.scope.getStore()
+    if (cur) {
+      const sp = `sp${cur.depth}`
+      await cur.t.execute(`SAVEPOINT ${sp}`)
+      try {
+        const out = await this.scope.run({ t: cur.t, depth: cur.depth + 1 }, fn)
+        await cur.t.execute(`RELEASE ${sp}`)
+        return out
+      } catch (e) {
+        await cur.t.executeMultiple(`ROLLBACK TO ${sp}; RELEASE ${sp}`)
+        throw e
+      }
+    }
+    const turn = this.writeQueue.then(() => this.transaction(fn))
+    this.writeQueue = turn.catch(() => {})
+    return turn
+  }
+
+  private async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    const t = await this.client.transaction('write')
+    try {
+      const out = await this.scope.run({ t, depth: 1 }, fn)
+      await t.commit()
+      return out
+    } catch (e) {
+      if (!t.closed) await t.rollback()
+      throw e
+    } finally {
+      t.close()
+    }
+  }
+
+  close() {
+    this.client.close()
   }
 }
 
-const depth = new WeakMap<DB, number>()
-/** Re-entrant transaction (nested calls become savepoints) */
-export function tx<T>(db: DB, fn: () => T): T {
-  const d = depth.get(db) ?? 0
-  const sp = `sp${d}`
-  db.exec(d === 0 ? 'BEGIN' : `SAVEPOINT ${sp}`)
-  depth.set(db, d + 1)
-  try {
-    const out = fn()
-    db.exec(d === 0 ? 'COMMIT' : `RELEASE ${sp}`)
-    return out
-  } catch (e) {
-    db.exec(d === 0 ? 'ROLLBACK' : `ROLLBACK TO ${sp}; RELEASE ${sp}`)
-    throw e
-  } finally {
-    depth.set(db, d)
+export async function openDb(url: string, authToken?: string): Promise<Db> {
+  const full = toDbUrl(url)
+  const file = full.startsWith('file:') ? full.slice('file:'.length) : null
+  if (file) mkdirSync(dirname(resolve(file)), { recursive: true })
+  // timeout: a single write outside a transaction waits up to 5 s for the file lock instead of failing
+  const db = new Db(createClient({ url: full, authToken: authToken || undefined, timeout: 5000 }), file)
+  if (file) await db.script('PRAGMA journal_mode = WAL;')
+  // Deletes rely on foreign keys (RESTRICT / CASCADE); refuse to run without them
+  const fk = await db.get<{ foreign_keys: number }>('PRAGMA foreign_keys')
+  if (!fk?.foreign_keys) throw new Error('Foreign key enforcement is off for this database; LeadHub needs it for data integrity.')
+  await migrate(db)
+  return db
+}
+
+async function migrate(db: Db) {
+  await db.script('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)')
+  const row = await db.get<{ version: number }>('SELECT version FROM schema_version')
+  if (!row) await db.run('INSERT INTO schema_version (version) VALUES (0)')
+  for (let version = row?.version ?? 0; version < MIGRATIONS.length; version++) {
+    const v = version
+    await db.tx(async () => {
+      await db.script(MIGRATIONS[v])
+      await db.run('UPDATE schema_version SET version = ?', [v + 1])
+    })
   }
 }

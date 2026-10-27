@@ -5,11 +5,11 @@ import { publicUser } from '../server/auth'
 import { STAGES } from '../shared/model'
 import { pipelineSummary } from '../shared/calc'
 
-test('demo seed loads with valid references and is flagged as demo data', () => {
-  const { svc, db } = createApp({ dbFile: ':memory:', admin: { email: 'a@test.local', password: 'x-password-1' }, demo: true, repPassword: 'rep-password' })
-  const b = svc.bootstrap(publicUser(db.prepare('SELECT * FROM users LIMIT 1').get() as never)!)
+test('demo seed loads with valid references and is flagged as demo data', async () => {
+  const { svc, db } = await createApp({ dbUrl: ':memory:', admin: { email: 'a@test.local', password: 'x-password-1' }, demo: true, repPassword: 'rep-password' })
+  const b = await svc.bootstrap(publicUser((await db.get('SELECT * FROM users LIMIT 1')) as never)!)
   assert.equal(b.settings.demoData, true)
-  assert.equal((db.prepare('PRAGMA foreign_key_check').all() as unknown[]).length, 0)
+  assert.equal((await db.all('PRAGMA foreign_key_check')).length, 0)
   const companies = new Set(b.companies.map((c) => c.id))
   for (const c of b.contacts) assert.ok(companies.has(c.companyId))
   for (const l of b.leads) {
@@ -26,8 +26,8 @@ test('demo seed loads with valid references and is flagged as demo data', () => 
   assert.ok(pipelineSummary(b.opportunities).wonValue > 0)
   assert.ok(b.services.length >= 20)
 
-  svc.clearBusinessData()
-  const empty = svc.bootstrap(b.me)
+  await svc.clearBusinessData()
+  const empty = await svc.bootstrap(b.me)
   assert.equal(empty.leads.length + empty.companies.length + empty.opportunities.length, 0)
   assert.equal(empty.settings.demoData, false)
   assert.ok(empty.users.length >= 1 && empty.services.length >= 20, 'keeps users and the service catalog')
