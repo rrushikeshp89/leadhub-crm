@@ -14,8 +14,8 @@ Capture leads, qualify them, run the pipeline, send proposals and close deals, a
 [![Last commit](https://img.shields.io/github/last-commit/rrushikeshp89/leadhub-crm?style=flat-square)](https://github.com/rrushikeshp89/leadhub-crm/commits/main)
 [![License](https://img.shields.io/badge/license-source--available-blue?style=flat-square)](LICENSE)
 
-[**Open the live app**](https://leadhub-9stj.onrender.com) ·
-[**Try the public inquiry form**](https://leadhub-9stj.onrender.com/inquiry) ·
+[**Open the live app**](https://crm.fluentopsai.com/) ·
+[**Try the public inquiry form**](https://crm.fluentopsai.com/inquiry) ·
 [Run it locally](#quick-start) ·
 [Deploy it for free](docs/deploy-render.md)
 
@@ -24,7 +24,7 @@ Capture leads, qualify them, run the pipeline, send proposals and close deals, a
 ![LeadHub dashboard showing pipeline value, weighted pipeline, closed-won revenue and win rate cards, lead KPIs, an October 2026 calendar with today's agenda, a lead-sources chart, an opportunities-by-stage bar chart and a list of follow-ups that are due or overdue.](docs/screenshots/dashboard.png)
 
 > [!NOTE]
-> **About the live demo.** The CRM at [leadhub-9stj.onrender.com](https://leadhub-9stj.onrender.com) holds a real team's data, so signing in is by invitation only. Anyone can try the **[public inquiry form](https://leadhub-9stj.onrender.com/inquiry)**: each submission becomes a new lead with a follow-up task inside the CRM. The app runs on a free plan and sleeps after 15 quiet minutes, so the first visit can take about a minute to load. For a full tour with demo data, [run it locally](#quick-start) in two minutes.
+> **About the live demo.** The CRM at [leadhub-9stj.onrender.com](https://crm.fluentopsai.com/) holds a real team's data, so signing in is by invitation only. Anyone can try the **[public inquiry form](https://crm.fluentopsai.com/inquiry)**: each submission becomes a new lead with a follow-up task inside the CRM. The app runs on a free plan and sleeps after 15 quiet minutes, so the first visit can take about a minute to load. For a full tour with demo data, [run it locally](#quick-start) in two minutes.
 
 ## Contents
 
